@@ -1,3 +1,5 @@
+// @ts-check
+
 const visit = require('unist-util-visit');
 const ogs = require('open-graph-scraper');
 const path = require('path');
@@ -5,6 +7,7 @@ const { writeFile, access, mkdir } = require('fs').promises;
 const fetch = require('node-fetch');
 const he = require('he');
 const { createHash } = require('crypto');
+const sharp = require('sharp');
 
 const defaultSaveDirectory = 'public';
 const defaultOutputDirectory = '/remark-link-card/';
@@ -24,7 +27,7 @@ const rlc = (options) => {
 
       visit(paragraphNode, 'text', (textNode) => {
         const urls = textNode.value.match(
-          /(https?:\/\/|www(?=\.))([-.\w]+)([^ \t\r\n]*)/g
+          /(https?:\/\/|www(?=\.))([-.\w]+)([^ \t\r\n]*)/g,
         );
         if (urls && urls.length === 1) {
           transformers.push(async () => {
@@ -61,7 +64,7 @@ const getOpenGraph = async (targetUrl) => {
     return result;
   } catch (error) {
     console.error(
-      `[remark-link-card] Error: Failed to get the Open Graph data of ${error.result.requestUrl} due to ${error.result.error}.`
+      `[remark-link-card] Error: Failed to get the Open Graph data of ${error.result.requestUrl} due to ${error.result.error}.`,
     );
     return undefined;
   }
@@ -85,7 +88,8 @@ const fetchData = async (targetUrl, options) => {
   if (options && options.cache) {
     faviconFilename = await downloadImage(
       faviconUrl,
-      path.join(process.cwd(), defaultSaveDirectory, defaultOutputDirectory)
+      path.join(process.cwd(), defaultSaveDirectory, defaultOutputDirectory),
+      options,
     );
     faviconSrc =
       faviconFilename && path.join(defaultOutputDirectory, faviconFilename);
@@ -98,7 +102,8 @@ const fetchData = async (targetUrl, options) => {
     if (options && options.cache) {
       const imageFilename = await downloadImage(
         ogResult.ogImage.url,
-        path.join(process.cwd(), defaultSaveDirectory, defaultOutputDirectory)
+        path.join(process.cwd(), defaultSaveDirectory, defaultOutputDirectory),
+        options,
       );
       ogImageSrc =
         imageFilename && path.join(defaultOutputDirectory, imageFilename);
@@ -123,7 +128,7 @@ const fetchData = async (targetUrl, options) => {
     displayUrl = decodeURI(displayUrl);
   } catch (error) {
     console.error(
-      `[remark-link-card] Error: Cannot decode url: "${url}"\n ${error}`
+      `[remark-link-card] Error: Cannot decode url: "${url}"\n ${error}`,
     );
   }
 
@@ -174,16 +179,21 @@ const createLinkCard = (data) => {
   return outputHTML;
 };
 
-const downloadImage = async (url, saveDirectory) => {
+const downloadImage = async (url, saveDirectory, options) => {
+  const isImageReduction = options.imageReduction.enable ?? true;
+  const imageFormat = options.imageReduction.format ?? 'webp';
+
   let targetUrl;
   try {
     targetUrl = new URL(url);
   } catch (error) {
     console.error(
-      `[remark-link-card] Error: Failed to parse url "${url}"\n ${error}`
+      `[remark-link-card] Error: Failed to parse url "${url}"\n ${error}`,
     );
   }
-  const hash = createHash("sha256").update(decodeURI(targetUrl.href)).digest("hex");
+  const hash = createHash('sha256')
+    .update(decodeURI(targetUrl.href))
+    .digest('hex');
   const filename = hash + path.extname(targetUrl.pathname);
   const saveFilePath = path.join(saveDirectory, filename);
   // check file existence(if it is existed, return filename)
@@ -208,11 +218,23 @@ const downloadImage = async (url, saveDirectory) => {
       },
       timeout: 10000,
     });
-    const buffer = await response.buffer();
+    let buffer = await response.buffer();
+
+    if (isImageReduction) {
+      try {
+        buffer = await sharp(buffer).toFormat(imageFormat).toBuffer();
+      } catch (convertError) {
+        console.error(
+          `[remark-link-card] Error: Failed to convert image to ${imageFormat}\n ${convertError}`,
+        );
+        return undefined;
+      }
+    }
+
     writeFile(saveFilePath, buffer);
   } catch (error) {
     console.error(
-      `[remark-link-card] Error: Failed to download image from ${targetUrl.href}\n ${error}`
+      `[remark-link-card] Error: Failed to download image from ${targetUrl.href}\n ${error}`,
     );
     return undefined;
   }
