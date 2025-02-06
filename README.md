@@ -284,3 +284,11 @@ If `options.shortenUrl` is `true`, the output will look like this.
   </div>
 </a>
 ```
+##### `options.imageReduction`
+Reduction of cached images by [sharp](https://github.com/lovell/sharp).
+
+###### `options.imageReduction.enable`
+Enables or disables image reduction. (`bool`, default: `true`)
+
+###### `options.imageReduction.format`
+Specifies the image format to output when reduction is enabled. (`string`, default: `webp`)
