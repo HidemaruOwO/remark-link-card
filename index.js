@@ -3,7 +3,7 @@
 const visit = require('unist-util-visit');
 const ogs = require('open-graph-scraper');
 const path = require('path');
-const { writeFile, access, mkdir } = require('fs').promises;
+const { readdir, writeFile, access, mkdir } = require('fs').promises;
 const fetch = require('node-fetch');
 const he = require('he');
 const { createHash } = require('crypto');
@@ -179,6 +179,33 @@ const createLinkCard = (data) => {
   return outputHTML;
 };
 
+const getImageExtension = (buffer) => {
+  const signatures = {
+    jpg: [0xff, 0xd8, 0xff],
+    png: [0x89, 0x50, 0x4e, 0x47],
+    gif: [0x47, 0x49, 0x46, 0x38],
+    bmp: [0x42, 0x4d],
+    webp: [0x52, 0x49, 0x46, 0x46],
+    avif: [
+      0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
+    ],
+  };
+
+  for (const [ext, signature] of Object.entries(signatures)) {
+    const match = signature.every((byte, index) => buffer[index] === byte);
+    if (match) {
+      return ext;
+    }
+  }
+
+  throw new Error('Unknown image format');
+};
+
+const findFileWithPrefix = async (dir, prefix) => {
+  const files = await readdir(dir);
+  return files.find((f) => f.startsWith(prefix));
+};
+
 const downloadImage = async (url, saveDirectory, options) => {
   const isImageReduction = options.imageReduction.enable ?? true;
   const imageFormat = options.imageReduction.format ?? 'webp';
@@ -194,12 +221,14 @@ const downloadImage = async (url, saveDirectory, options) => {
   const hash = createHash('sha256')
     .update(decodeURI(targetUrl.href))
     .digest('hex');
-  const filename = hash + path.extname(targetUrl.pathname);
+  let filename = hash + path.extname(targetUrl.pathname);
   const saveFilePath = path.join(saveDirectory, filename);
   // check file existence(if it is existed, return filename)
   try {
-    await access(saveFilePath);
-    return filename;
+    const found = await findFileWithPrefix(saveDirectory, hash);
+    if (found) {
+      return found;
+    }
   } catch (error) {}
   // check directory existence
   try {
@@ -231,7 +260,10 @@ const downloadImage = async (url, saveDirectory, options) => {
       }
     }
 
-    writeFile(saveFilePath, buffer);
+    const extension = getImageExtension(buffer);
+    filename = `${filename}.${extension}`;
+
+    writeFile(`${saveFilePath}.${extension}`, buffer);
   } catch (error) {
     console.error(
       `[remark-link-card] Error: Failed to download image from ${targetUrl.href}\n ${error}`,
